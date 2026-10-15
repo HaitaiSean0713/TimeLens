@@ -1,0 +1,36 @@
+name: Verify TimeLens
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check whether source has been imported
+        id: source
+        shell: bash
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Full TimeLens source has not been imported yet." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.source.outputs.present == 'true'
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+        if: steps.source.outputs.present == 'true'
+      - run: npm run typecheck
+        if: steps.source.outputs.present == 'true'
+      - run: npm test
+        if: steps.source.outputs.present == 'true'
+      - run: npm run build
+        if: steps.source.outputs.present == 'true'
