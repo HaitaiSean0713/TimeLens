@@ -1,0 +1,38 @@
+name: Deploy TimeLens to Cloudflare
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: timelens-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TIMELENS_SECRET: ${{ secrets.TIMELENS_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Require complete project source
+        run: test -f package.json || (echo "Import TimeLens-source.zip before deploying." && exit 1)
+      - name: Validate deployment secrets
+        run: |
+          node --input-type=module -e 'for(const key of ["CLOUDFLARE_API_TOKEN","CLOUDFLARE_ACCOUNT_ID","TIMELENS_SECRET"])if(!process.env[key])throw new Error("Missing GitHub secret: "+key);if(process.env.TIMELENS_SECRET.length<64)throw new Error("TIMELENS_SECRET must contain at least 64 characters");'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: node scripts/configure-cloudflare.mjs
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply DB --remote --config .deploy/wrangler.json
+      - name: Publish Worker
+        run: npx wrangler deploy --config .deploy/wrangler.json
+      - name: Install server-only PIN secret
+        run: printf '%s' "$TIMELENS_SECRET" | npx wrangler secret put TIMELENS_SECRET --config .deploy/wrangler.json
